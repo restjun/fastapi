@@ -1,4 +1,4 @@
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import pyupbit
@@ -16,9 +16,6 @@ all_tickers = pyupbit.get_tickers()
 
 # KRW로 표기된 종목만 필터링
 krw_tickers = [ticker for ticker in all_tickers if "KRW-" in ticker]
-
-# 최근 조회한 골든크로스 결과를 저장할 변수
-last_golden_cross_coins = []
 
 # 텔레그램 봇 설정
 telegram_token = "6389499820:AAHCKStfe6P0FuUakX7xzEcBByaxwzD_dak"  # 텔레그램 봇 토큰
@@ -71,10 +68,9 @@ def get_golden_cross_coins():
 
 # 주기적으로 백그라운드 태스크를 실행하는 함수
 async def update_golden_cross(background_tasks: BackgroundTasks):
-    global last_golden_cross_coins
     current_time = datetime.now()
 
-    # 현재 시간과 최근 조회한 골든크로스 결과의 시간 차이가 15분 이상인 경우에만 조회
+    # 최근 조회한 골든크로스 결과의 시간 차이가 15분 이상인 경우에만 조회
     if not last_golden_cross_coins or (current_time - last_golden_cross_coins[0]["cross_date"]).total_seconds() >= 900:
         # 골든크로스 결과 업데이트
         last_golden_cross_coins = get_golden_cross_coins()
