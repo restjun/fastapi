@@ -50,8 +50,8 @@ def get_golden_cross_coins():
     golden_cross_coins = []
 
     for ticker in krw_tickers:
-        # API 요청을 통해 15분 단위로 조회
-        df = pyupbit.get_ohlcv(ticker, interval='minute15', count=200)
+        # API 요청을 통해 2400분 단위로 조회
+        df = pyupbit.get_ohlcv(ticker, interval='minute15', count=2400)
 
         # 종가 (Close)의 120분 지수이동평균 계산
         df['EMA120'] = df['close'].ewm(span=120, adjust=False).mean()
@@ -112,4 +112,3 @@ if __name__ == "__main__":
     host = "0.0.0.0"
     port = 8000
     uvicorn.run(app, host=host, port=port)
-
