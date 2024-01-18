@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import telepot
 import schedule
 import time
+import uvicorn
 
 app = FastAPI()
 app.mount("/", StaticFiles(directory="public", html=True), name="static")
@@ -99,27 +100,16 @@ def send_golden_cross_message(golden_cross_coins, top_30_tickers):
 
 
 # 주기적으로 골든크로스 업데이트 실행
-@app.on_event("startup")
-async def startup_event():
-    schedule.every(15).minutes.do(update_golden_cross, background_tasks=BackgroundTasks())
+schedule.every(15).minutes.do(update_golden_cross, background_tasks=BackgroundTasks())
 
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+while True:
+    schedule.run_pending()
+    time.sleep(1)
 
 
-# 백그라운드 태스크 엔드포인트
-@app.post("/background-task")
-async def background_task(background_tasks: BackgroundTasks):
-    await update_golden_cross(background_tasks)
-    return {"message": "Background task initiated"}
+# 애플리케이션 실행 코드
+if __name__ == "__main__":
+    host = "0.0.0.0"
+    port = 8000
+    uvicorn.run(app, host=host, port=port)
 
-
-# 골든크로스 조회 엔드포인트
-class GoldenCrossResponse(BaseModel):
-    golden_cross_coins: list
-
-
-@app.get("/golden_cross", response_model=GoldenCrossResponse)
-async def golden_cross():
-    return {"golden_cross_coins": last_golden_cross_coins}
