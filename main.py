@@ -1,5 +1,96 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+import pyupbit
+from datetime import datetime, timedelta
+import telepot
+import schedule
+import time
 
 app = FastAPI()
-app.mount("/", StaticFiles(directory="public", html = True), name="static")
+app.mount("/", StaticFiles(directory="public", html=True), name="static")
+
+# 모든 종목 코드 확인
+all_tickers = pyupbit.get_tickers()
+
+# KRW로 표기된 종목만 필터링
+krw_tickers = [ticker for ticker in all_tickers if "KRW-" in ticker]
+
+# 최근 조회한 골든크로스 결과를 저장할 변수
+last_golden_cross_coins = []
+
+# 텔레그램 봇 설정
+telegram_token = "6389499820:AAHCKStfe6P0FuUakX7xzEcBByaxwzD_dak"  # 텔레그램 봇 토큰
+telegram_chat_id = "@6596886700"  # 텔레그램 채널 ID
+telegram_bot = telepot.Bot(telegram_token)
+
+
+# 골든크로스 조회를 위한 함수
+def get_golden_cross_coins():
+    golden_cross_coins = []
+
+    for ticker in krw_tickers:
+        # API 요청을 통해 15분 단위로 조회
+        df = pyupbit.get_ohlcv(ticker, interval='minute15', count=200)
+
+        # 종가 (Close)의 120분 지수이동평균 계산
+        df['EMA120'] = df['close'].ewm(span=120, adjust=False).mean()
+
+        # 종가 (Close)의 240분 지수이동평균 계산
+        df['EMA240'] = df['close'].ewm(span=240, adjust=False).mean()
+
+        # 120선이 240선을 돌파하는 골든크로스 확인
+        if df['EMA120'].iloc[-1] > df['EMA240'].iloc[-1] and df['EMA120'].iloc[-2] <= df['EMA240'].iloc[-2]:
+            golden_cross_coins.append({"ticker": ticker, "cross_date": df.index[-1]})
+
+    # 최근에 골든크로스가 나타난 순서로 정렬
+    sorted_golden_cross_coins = sorted(golden_cross_coins, key=lambda x: x["cross_date"], reverse=True)
+
+    return sorted_golden_cross_coins
+
+
+# 주기적으로 백그라운드 태스크를 실행하는 함수
+async def update_golden_cross(background_tasks: BackgroundTasks):
+    global last_golden_cross_coins
+    current_time = datetime.now()
+
+    # 현재 시간과 최근 조회한 골든크로스 결과의 시간 차이가 15분 이상인 경우에만 조회
+    if not last_golden_cross_coins or (current_time - last_golden_cross_coins[0]["cross_date"]).total_seconds() >= 900:
+        last_golden_cross_coins = get_golden_cross_coins()
+        background_tasks.add_task(send_golden_cross_message, last_golden_cross_coins)
+
+
+# 텔레그램으로 메시지 전송하는 함수
+def send_golden_cross_message(golden_cross_coins):
+    message = "\n골든크로스가 나타난 코인들:\n"
+    for coin in golden_cross_coins:
+        message += f"{coin['ticker']} - 최근 골든크로스 일자: {coin['cross_date']}\n"
+
+    telegram_bot.sendMessage(chat_id=telegram_chat_id, text=message)
+
+
+# 주기적으로 골든크로스 업데이트 실행
+@app.on_event("startup")
+async def startup_event():
+    schedule.every(15).minutes.do(update_golden_cross, background_tasks=BackgroundTasks())
+
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
+
+
+# 백그라운드 태스크 엔드포인트
+@app.post("/background-task")
+async def background_task(background_tasks: BackgroundTasks):
+    await update_golden_cross(background_tasks)
+    return {"message": "Background task initiated"}
+
+
+# 골든크로스 조회 엔드포인트
+class GoldenCrossResponse(BaseModel):
+    golden_cross_coins: list
+
+
+@app.get("/golden_cross", response_model=GoldenCrossResponse)
+async def golden_cross():
+    return {"golden_cross_coins": last_golden_cross_coins}
