@@ -25,6 +25,25 @@ telegram_chat_id = "@6596886700"  # 텔레그램 채널 ID
 telegram_bot = telepot.Bot(telegram_token)
 
 
+# 거래대금 상위 30개 코인 조회
+def get_top_30_tickers():
+    ticker_info = []
+    
+    for ticker in krw_tickers:
+        orderbook = pyupbit.get_orderbook(tickers=ticker)
+        if orderbook:
+            trade_price = orderbook[0]['orderbook_units'][0]['ask_price']
+            trade_volume = orderbook[0]['orderbook_units'][0]['ask_size']
+            trade_amount = trade_price * trade_volume
+            ticker_info.append({"ticker": ticker, "trade_amount": trade_amount})
+
+    # 거래대금이 높은 순으로 정렬
+    sorted_ticker_info = sorted(ticker_info, key=lambda x: x["trade_amount"], reverse=True)
+
+    # 상위 30개 코인 반환
+    return sorted_ticker_info[:30]
+
+
 # 골든크로스 조회를 위한 함수
 def get_golden_cross_coins():
     golden_cross_coins = []
@@ -56,15 +75,25 @@ async def update_golden_cross(background_tasks: BackgroundTasks):
 
     # 현재 시간과 최근 조회한 골든크로스 결과의 시간 차이가 15분 이상인 경우에만 조회
     if not last_golden_cross_coins or (current_time - last_golden_cross_coins[0]["cross_date"]).total_seconds() >= 900:
+        # 골든크로스 결과 업데이트
         last_golden_cross_coins = get_golden_cross_coins()
-        background_tasks.add_task(send_golden_cross_message, last_golden_cross_coins)
+        
+        # 거래 대금이 높은 30개 코인 조회
+        top_30_tickers = get_top_30_tickers()
+        
+        # 메시지 전송 백그라운드 태스크 등록
+        background_tasks.add_task(send_golden_cross_message, last_golden_cross_coins, top_30_tickers)
 
 
 # 텔레그램으로 메시지 전송하는 함수
-def send_golden_cross_message(golden_cross_coins):
+def send_golden_cross_message(golden_cross_coins, top_30_tickers):
     message = "\n골든크로스가 나타난 코인들:\n"
     for coin in golden_cross_coins:
         message += f"{coin['ticker']} - 최근 골든크로스 일자: {coin['cross_date']}\n"
+
+    message += "\n거래 대금이 높은 상위 30개 코인:\n"
+    for ticker_info in top_30_tickers:
+        message += f"{ticker_info['ticker']} - 거래 대금: {ticker_info['trade_amount']}\n"
 
     telegram_bot.sendMessage(chat_id=telegram_chat_id, text=message)
 
